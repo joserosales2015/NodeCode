@@ -69,7 +69,7 @@ namespace NodeCode.Rendering
 
                 var boundsDescription = new RectangleF(bounds.X + 64, bounds.Y + bounds.Height / 3 + 8, bounds.Width - 64 - 4, bounds.Height / 3 * 2 - 12);
                 
-                g.DrawString(node.Description, font, brush, boundsDescription, format);
+                g.DrawString(node.Summary, font, brush, boundsDescription, format);
             }
 
             // Puntos de conexión

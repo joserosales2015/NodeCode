@@ -49,7 +49,7 @@ namespace NodeCode.Controls
             saveButton.Click += (s, e) =>
             {
                 node.Name = nameTextBox.Text;
-                node.Description = propsTextBox.Text;
+                node.Summary = propsTextBox.Text;
                 DialogResult = DialogResult.OK;
                 Close();
             };

@@ -240,7 +240,7 @@
             pnlTabPropiedadesNodo.Size = new Size(30, 145);
             pnlTabPropiedadesNodo.TabIndex = 0;
             pnlTabPropiedadesNodo.Click += pnlTabPropiedadesNodo_Click;
-            pnlTabPropiedadesNodo.Paint += panel1_Paint;
+            pnlTabPropiedadesNodo.Paint += pnlTabPropiedadesNodo_Paint;
             // 
             // label1
             // 

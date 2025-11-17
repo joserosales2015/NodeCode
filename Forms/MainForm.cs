@@ -25,10 +25,10 @@ namespace NodeCode.Forms
 {
     public partial class MainForm : Form
     {
-        //private NodeCanvas canvas;
+        #region Variables y Propiedades
         private FlowNode? nodoSeleccionado = null;
         private System.Windows.Forms.Timer analysisTimer;
-        
+        #endregion
 
         public MainForm()
         {
@@ -38,6 +38,7 @@ namespace NodeCode.Forms
             ConfigurarAnalisisEnTiempoReal();
         }
 
+        #region Metodos
         private void InitializeComponents()
         {
             var toolStrip = new ToolStrip { Dock = DockStyle.Top };
@@ -67,6 +68,55 @@ namespace NodeCode.Forms
             uscCanvas.AddNode("Salida", "Muestra resultados", new Point(100, 400), 5);
             uscCanvas.AddNode("Final", "Fin del flujo", new Point(100, 500), 1);
         }
+        #endregion
+
+        #region Eventos
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            var tooltip = new ToolTip();
+            Point lastMousePos = Point.Empty;
+
+            scintilla.MouseMove += async (s, ev) =>
+            {
+                if (lastMousePos == ev.Location)
+                    return;
+
+                lastMousePos = ev.Location;
+
+                int pos = scintilla.CharPositionFromPoint(ev.X, ev.Y);
+                if (pos < 0 || pos >= scintilla.TextLength)
+                    return;
+
+                // Verificar si hay un indicador en esta posición
+                var mask = scintilla.IndicatorAllOnFor(pos);
+                if ((mask & (1 << 0)) != 0 || (mask & (1 << 1)) != 0)
+                {
+                    // Hay un error o advertencia, buscar el diagnóstico
+                    string codigo = scintilla.Text;
+                    var syntaxTree = CSharpSyntaxTree.ParseText(codigo);
+                    var compilation = CSharpCompilation.Create("MiAnalisis")
+                        .AddReferences(MetadataReference.CreateFromFile(typeof(object).Assembly.Location))
+                        .AddReferences(MetadataReference.CreateFromFile(typeof(Console).Assembly.Location))
+                        .AddSyntaxTrees(syntaxTree);
+
+                    var diagnostics = compilation.GetDiagnostics();
+
+                    foreach (var diagnostic in diagnostics.Where(d => d.Location.IsInSource))
+                    {
+                        var span = diagnostic.Location.SourceSpan;
+                        if (pos >= span.Start && pos <= span.Start + span.Length)
+                        {
+                            tooltip.Show(diagnostic.GetMessage(), scintilla, ev.Location.X, ev.Location.Y + 20, 3000);
+                            break;
+                        }
+                    }
+                }
+                else
+                {
+                    tooltip.Hide(scintilla);
+                }
+            };
+        }
 
         private void ClearButton_Click(object sender, EventArgs e)
         {
@@ -85,37 +135,8 @@ namespace NodeCode.Forms
             pnlDetalleNodo.Visible = true;
             pnlTabsDerecha.Visible = false;
             uscNombreNodo.Text = e.Node.Name;
-            uscDescripcionNodo.Text = e.Node.Description;
+            uscDescripcionNodo.Text = e.Node.Summary;
             nodoSeleccionado = e.Node;
-        }
-
-        private void panel1_Paint(object sender, PaintEventArgs e)
-        {
-            string texto = "Propiedades del Nodo";
-            Font fuente = new Font("Segoe UI", 9, FontStyle.Regular);
-            Brush brush = Brushes.WhiteSmoke;
-            Graphics g = e.Graphics;
-            var estado = g.Save();
-
-            g.TranslateTransform(pnlTabPropiedadesNodo.Width - 8, 13);
-            g.RotateTransform(90);
-            g.DrawString(texto, fuente, brush, 0, 0);
-            g.Restore(estado);
-        }
-
-        private void btnOcultarPanelPropiedades_Click(object sender, EventArgs e)
-        {
-            pnlDetalleNodo.Visible = false;
-            pnlTabsDerecha.Visible = true;
-        }
-
-        private void pnlTabPropiedadesNodo_Click(object sender, EventArgs e)
-        {
-            if (nodoSeleccionado != null)
-            {
-                pnlDetalleNodo.Visible = true;
-                pnlTabsDerecha.Visible = false;
-            }
         }
 
         private void uscCanvas_ClickCanvas(object sender, MouseEventArgs e)
@@ -123,6 +144,12 @@ namespace NodeCode.Forms
             pnlDetalleNodo.Visible = false;
             pnlTabsDerecha.Visible = true;
             nodoSeleccionado = null;
+        }
+
+        private void btnOcultarPanelPropiedades_Click(object sender, EventArgs e)
+        {
+            pnlDetalleNodo.Visible = false;
+            pnlTabsDerecha.Visible = true;
         }
 
         private void uscNombreNodo_TextNodeChanged(object sender, EventArgs e)
@@ -138,8 +165,101 @@ namespace NodeCode.Forms
         {
             if (nodoSeleccionado != null)
             {
-                nodoSeleccionado.Description = uscDescripcionNodo.Text;
+                nodoSeleccionado.Summary = uscDescripcionNodo.Text;
                 uscCanvas.Invalidate();
+            }
+        }
+
+        private void pnlTabPropiedadesNodo_Click(object sender, EventArgs e)
+        {
+            if (nodoSeleccionado != null)
+            {
+                pnlDetalleNodo.Visible = true;
+                pnlTabsDerecha.Visible = false;
+            }
+        }
+
+        private void pnlTabPropiedadesNodo_Paint(object sender, PaintEventArgs e)
+        {
+            string texto = "Propiedades del Nodo";
+            Font fuente = new Font("Segoe UI", 9, FontStyle.Regular);
+            Brush brush = Brushes.WhiteSmoke;
+            Graphics g = e.Graphics;
+            var estado = g.Save();
+
+            g.TranslateTransform(pnlTabPropiedadesNodo.Width - 8, 13);
+            g.RotateTransform(90);
+            g.DrawString(texto, fuente, brush, 0, 0);
+            g.Restore(estado);
+        }
+
+        private void scintilla_InsertCheck(object sender, InsertCheckEventArgs e)
+        {
+            if (e.Text.EndsWith("\r") || e.Text.EndsWith("\n") || e.Text.EndsWith("\r\n"))
+            {
+                int currentLine = scintilla.LineFromPosition(scintilla.CurrentPosition);
+                string currentLineText = scintilla.Lines[currentLine].Text;
+
+                // Calcular espacios de indentación de la línea actual
+                int indent = 0;
+                foreach (char c in currentLineText)
+                {
+                    if (c == ' ')
+                        indent++;
+                    else if (c == '\t')
+                        indent += scintilla.TabWidth;
+                    else
+                        break;
+                }
+
+                // Si la línea termina con { agregar indentación extra
+                string trimmedLine = currentLineText.Trim();
+                if (trimmedLine.EndsWith("{"))
+                {
+                    indent += scintilla.TabWidth;
+                }
+
+                // Agregar la indentación al texto insertado
+                e.Text += new string(' ', indent);
+            }
+        }
+
+        private void scintilla_MarginClick(object sender, MarginClickEventArgs e)
+        {
+            if (e.Margin == 2) // Margen de folding
+            {
+                int line = scintilla.LineFromPosition(e.Position);
+
+                // Toggle fold
+                if (scintilla.Lines[line].FoldLevelFlags.HasFlag(FoldLevelFlags.Header))
+                {
+                    scintilla.Lines[line].ToggleFold();
+                }
+            }
+            MessageBox.Show("");
+        }
+
+        private void scintilla_CharAdded(object sender, CharAddedEventArgs e)
+        {
+            int currentPos = scintilla.CurrentPosition;
+
+            // Mostrar miembros después de un punto
+            if (e.Char == '.')
+            {
+                MostrarMiembrosDeObjeto(currentPos);
+                return;
+            }
+
+            // Obtener palabra actual
+            int wordStartPos = scintilla.WordStartPosition(currentPos, true);
+            string currentWord = scintilla.GetTextRange(wordStartPos, currentPos - wordStartPos);
+
+            // Mostrar autocompletado después de 2 caracteres
+            if (currentWord.Length >= 2)
+            {
+                // Usar versión simple o con Roslyn
+                //MostrarAutocompletado(currentWord, currentPos); // Simple
+                MostrarAutocompletadoConRoslyn(currentWord, currentPos); // Avanzado
             }
         }
 
@@ -172,7 +292,103 @@ namespace MiApp
         #endregion
     }
 }";
-            
+
+        }
+        #endregion
+
+        private async Task AnalizarCodigo()
+        {
+            string codigo = scintilla.Text;
+
+            // Limpiar indicadores anteriores
+            scintilla.IndicatorCurrent = 0;
+            scintilla.IndicatorClearRange(0, scintilla.TextLength);
+            scintilla.IndicatorCurrent = 1;
+            scintilla.IndicatorClearRange(0, scintilla.TextLength);
+
+            await Task.Run(() =>
+            {
+                // Crear árbol sintáctico con Roslyn
+                var syntaxTree = CSharpSyntaxTree.ParseText(codigo);
+
+                // Obtener referencias de ensamblados del dominio actual
+                var assemblyPath = Path.GetDirectoryName(typeof(object).Assembly.Location);
+
+                var references = new List<MetadataReference>
+                {
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "mscorlib.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Core.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Runtime.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Console.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Collections.dll")),
+                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "netstandard.dll")),
+                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                    MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
+        };
+
+                // Crear compilación con todas las referencias
+                var compilation = CSharpCompilation.Create(
+                    "MiAnalisis",
+                    syntaxTrees: new[] { syntaxTree },
+                    references: references,
+                    options: new CSharpCompilationOptions(OutputKind.ConsoleApplication));
+
+                // Obtener diagnósticos (errores y advertencias)
+                var diagnostics = compilation.GetDiagnostics();
+
+                // Procesar cada diagnóstico
+                foreach (var diagnostic in diagnostics)
+                {
+                    if (diagnostic.Location.IsInSource)
+                    {
+                        var span = diagnostic.Location.SourceSpan;
+                        int startPos = span.Start;
+                        int length = span.Length;
+
+                        // Invocar en el hilo de UI
+                        scintilla.Invoke(new Action(() =>
+                        {
+                            if (diagnostic.Severity == DiagnosticSeverity.Error)
+                            {
+                                // Error: subrayado rojo
+                                scintilla.IndicatorCurrent = 0;
+                                scintilla.IndicatorFillRange(startPos, length);
+                            }
+                            else if (diagnostic.Severity == DiagnosticSeverity.Warning)
+                            {
+                                // Advertencia: subrayado verde
+                                scintilla.IndicatorCurrent = 1;
+                                scintilla.IndicatorFillRange(startPos, length);
+                            }
+                        }));
+                    }
+                }
+            });
+        }
+
+        private static void CargarCodigoNodo(ref Scintilla editor, CodeNode nodo)
+        {
+            editor.Text = nodo.CodigoMetodo ?? "// Escribe tu código aquí\n";
+        }
+
+        private void ConfigurarAnalisisEnTiempoReal()
+        {
+            // Timer para analizar después de que el usuario deje de escribir
+            analysisTimer = new System.Windows.Forms.Timer();
+            analysisTimer.Interval = 500; // 500ms después de la última tecla
+            analysisTimer.Tick += async (s, e) =>
+            {
+                analysisTimer.Stop();
+                await AnalizarCodigo();
+            };
+
+            // Evento cuando cambia el texto
+            scintilla.TextChanged += (s, e) =>
+            {
+                analysisTimer.Stop();
+                analysisTimer.Start();
+            };
         }
 
         private void ConfigurarTemaDark()
@@ -223,7 +439,7 @@ namespace MiApp
             // Colores del editor
             scintilla.CaretForeColor = Color.White;
             scintilla.CaretLineBackColor = Color.FromArgb(100, 40, 40, 40);
-            
+
             // Selección
             scintilla.SelectionBackColor = Color.FromArgb(38, 79, 120);
             scintilla.SelectionTextColor = Color.White;
@@ -297,96 +513,38 @@ namespace MiApp
             scintilla.SelectionBackColor = Color.FromArgb(51, 153, 255);
         }
 
-        private void ConfigurarAnalisisEnTiempoReal()
+        private void MostrarAutocompletado(string currentWord, int position)
         {
-            // Timer para analizar después de que el usuario deje de escribir
-            analysisTimer = new System.Windows.Forms.Timer();
-            analysisTimer.Interval = 500; // 500ms después de la última tecla
-            analysisTimer.Tick += async (s, e) =>
-            {
-                analysisTimer.Stop();
-                await AnalizarCodigo();
-            };
+            // Lista de palabras clave y tipos comunes de C#
+            var palabrasClave = new List<string>
+    {
+        "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
+        "char", "checked", "class", "const", "continue", "decimal", "default",
+        "delegate", "do", "double", "else", "enum", "event", "explicit",
+        "extern", "false", "finally", "fixed", "float", "for", "foreach",
+        "goto", "if", "implicit", "in", "int", "interface", "internal",
+        "is", "lock", "long", "namespace", "new", "null", "object",
+        "operator", "out", "override", "params", "private", "protected",
+        "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
+        "sizeof", "stackalloc", "static", "string", "struct", "switch",
+        "this", "throw", "true", "try", "typeof", "uint", "ulong",
+        "unchecked", "unsafe", "ushort", "using", "virtual", "void",
+        "volatile", "while", "async", "await", "var", "dynamic"
+    };
 
-            // Evento cuando cambia el texto
-            scintilla.TextChanged += (s, e) =>
+            // Filtrar palabras que coincidan
+            var sugerencias = palabrasClave
+                .Where(p => p.StartsWith(currentWord, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(p => p)
+                .ToList();
+
+            if (sugerencias.Any())
             {
-                analysisTimer.Stop();
-                analysisTimer.Start();
-            };
+                // Mostrar lista de autocompletado
+                scintilla.AutoCShow(currentWord.Length, string.Join(" ", sugerencias));
+            }
         }
-
-        private async Task AnalizarCodigo()
-        {
-            string codigo = scintilla.Text;
-
-            // Limpiar indicadores anteriores
-            scintilla.IndicatorCurrent = 0;
-            scintilla.IndicatorClearRange(0, scintilla.TextLength);
-            scintilla.IndicatorCurrent = 1;
-            scintilla.IndicatorClearRange(0, scintilla.TextLength);
-
-            await Task.Run(() =>
-            {
-                // Crear árbol sintáctico con Roslyn
-                var syntaxTree = CSharpSyntaxTree.ParseText(codigo);
-
-                // Obtener referencias de ensamblados del dominio actual
-                var assemblyPath = Path.GetDirectoryName(typeof(object).Assembly.Location);
-
-                var references = new List<MetadataReference>
-                {
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "mscorlib.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Core.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Runtime.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Console.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "System.Collections.dll")),
-                    MetadataReference.CreateFromFile(Path.Combine(assemblyPath, "netstandard.dll")),
-                    MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                    MetadataReference.CreateFromFile(typeof(Console).Assembly.Location)
-        };
-
-                // Crear compilación con todas las referencias
-                var compilation = CSharpCompilation.Create(
-                    "MiAnalisis",
-                    syntaxTrees: new[] { syntaxTree },
-                    references: references,
-                    options: new CSharpCompilationOptions(OutputKind.ConsoleApplication));
-
-                // Obtener diagnósticos (errores y advertencias)
-                var diagnostics = compilation.GetDiagnostics();
-
-                // Procesar cada diagnóstico
-                foreach (var diagnostic in diagnostics)
-                {
-                    if (diagnostic.Location.IsInSource)
-                    {
-                        var span = diagnostic.Location.SourceSpan;
-                        int startPos = span.Start;
-                        int length = span.Length;
-
-                        // Invocar en el hilo de UI
-                        scintilla.Invoke(new Action(() =>
-                        {
-                            if (diagnostic.Severity == DiagnosticSeverity.Error)
-                            {
-                                // Error: subrayado rojo
-                                scintilla.IndicatorCurrent = 0;
-                                scintilla.IndicatorFillRange(startPos, length);
-                            }
-                            else if (diagnostic.Severity == DiagnosticSeverity.Warning)
-                            {
-                                // Advertencia: subrayado verde
-                                scintilla.IndicatorCurrent = 1;
-                                scintilla.IndicatorFillRange(startPos, length);
-                            }
-                        }));
-                    }
-                }
-            });
-        }
-
+        
         private async void MostrarAutocompletadoConRoslyn(string currentWord, int position)
         {
             if (string.IsNullOrWhiteSpace(currentWord) || currentWord.Length < 2)
@@ -554,12 +712,12 @@ namespace MiApp
                     "Length", "ToUpper", "ToLower", "Substring", "Contains",
                     "Replace", "Split", "Trim", "StartsWith", "EndsWith", "IndexOf"
                 },
-                        ["Console"] = new List<string>
+                ["Console"] = new List<string>
                 {
                     "WriteLine", "Write", "ReadLine", "ReadKey", "Clear",
                     "ForegroundColor", "BackgroundColor", "Title"
                 },
-                        ["Int32"] = new List<string>
+                ["Int32"] = new List<string>
                 {
                     "ToString", "Parse", "TryParse", "MaxValue", "MinValue"
                 }
@@ -574,93 +732,14 @@ namespace MiApp
             }
         }
 
-        private void MostrarAutocompletado(string currentWord, int position)
-        {
-            // Lista de palabras clave y tipos comunes de C#
-            var palabrasClave = new List<string>
-    {
-        "abstract", "as", "base", "bool", "break", "byte", "case", "catch",
-        "char", "checked", "class", "const", "continue", "decimal", "default",
-        "delegate", "do", "double", "else", "enum", "event", "explicit",
-        "extern", "false", "finally", "fixed", "float", "for", "foreach",
-        "goto", "if", "implicit", "in", "int", "interface", "internal",
-        "is", "lock", "long", "namespace", "new", "null", "object",
-        "operator", "out", "override", "params", "private", "protected",
-        "public", "readonly", "ref", "return", "sbyte", "sealed", "short",
-        "sizeof", "stackalloc", "static", "string", "struct", "switch",
-        "this", "throw", "true", "try", "typeof", "uint", "ulong",
-        "unchecked", "unsafe", "ushort", "using", "virtual", "void",
-        "volatile", "while", "async", "await", "var", "dynamic"
-    };
-
-            // Filtrar palabras que coincidan
-            var sugerencias = palabrasClave
-                .Where(p => p.StartsWith(currentWord, StringComparison.OrdinalIgnoreCase))
-                .OrderBy(p => p)
-                .ToList();
-
-            if (sugerencias.Any())
-            {
-                // Mostrar lista de autocompletado
-                scintilla.AutoCShow(currentWord.Length, string.Join(" ", sugerencias));
-            }
-        }
-
-        private void MainForm_Load(object sender, EventArgs e)
-        {
-            var tooltip = new ToolTip();
-            Point lastMousePos = Point.Empty;
-
-            scintilla.MouseMove += async (s, ev) =>
-            {
-                if (lastMousePos == ev.Location)
-                    return;
-
-                lastMousePos = ev.Location;
-
-                int pos = scintilla.CharPositionFromPoint(ev.X, ev.Y);
-                if (pos < 0 || pos >= scintilla.TextLength)
-                    return;
-
-                // Verificar si hay un indicador en esta posición
-                var mask = scintilla.IndicatorAllOnFor(pos);
-                if ((mask & (1 << 0)) != 0 || (mask & (1 << 1)) != 0)
-                {
-                    // Hay un error o advertencia, buscar el diagnóstico
-                    string codigo = scintilla.Text;
-                    var syntaxTree = CSharpSyntaxTree.ParseText(codigo);
-                    var compilation = CSharpCompilation.Create("MiAnalisis")
-                        .AddReferences(MetadataReference.CreateFromFile(typeof(object).Assembly.Location))
-                        .AddReferences(MetadataReference.CreateFromFile(typeof(Console).Assembly.Location))
-                        .AddSyntaxTrees(syntaxTree);
-
-                    var diagnostics = compilation.GetDiagnostics();
-
-                    foreach (var diagnostic in diagnostics.Where(d => d.Location.IsInSource))
-                    {
-                        var span = diagnostic.Location.SourceSpan;
-                        if (pos >= span.Start && pos <= span.Start + span.Length)
-                        {
-                            tooltip.Show(diagnostic.GetMessage(), scintilla, ev.Location.X, ev.Location.Y + 20, 3000);
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    tooltip.Hide(scintilla);
-                }
-            };
-        }
-
         private List<MetadataReference> ObtenerReferencias()
         {
             // Esta es la forma más simple y funciona en .NET Framework, .NET Core, .NET 5-8
             var referencias = new List<MetadataReference>
-    {
-        // Referencia básica (el más importante)
-        MetadataReference.CreateFromFile(typeof(object).Assembly.Location)
-    };
+            {
+                // Referencia básica (el más importante)
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location)
+            };
 
             // Agregar todas las referencias del dominio actual
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
@@ -681,75 +760,33 @@ namespace MiApp
             return referencias;
         }
 
-        private void scintilla_InsertCheck(object sender, InsertCheckEventArgs e)
+        private static void ParsearParametros(ref CodeNode nodo, string texto)
         {
-            if (e.Text.EndsWith("\r") || e.Text.EndsWith("\n") || e.Text.EndsWith("\r\n"))
-            {
-                int currentLine = scintilla.LineFromPosition(scintilla.CurrentPosition);
-                string currentLineText = scintilla.Lines[currentLine].Text;
+            nodo.Parametros.Clear();
 
-                // Calcular espacios de indentación de la línea actual
-                int indent = 0;
-                foreach (char c in currentLineText)
-                {
-                    if (c == ' ')
-                        indent++;
-                    else if (c == '\t')
-                        indent += scintilla.TabWidth;
-                    else
-                        break;
-                }
-
-                // Si la línea termina con { agregar indentación extra
-                string trimmedLine = currentLineText.Trim();
-                if (trimmedLine.EndsWith("{"))
-                {
-                    indent += scintilla.TabWidth;
-                }
-
-                // Agregar la indentación al texto insertado
-                e.Text += new string(' ', indent);
-            }
-        }
-
-        private void scintilla_MarginClick(object sender, MarginClickEventArgs e)
-        {
-            if (e.Margin == 2) // Margen de folding
-            {
-                int line = scintilla.LineFromPosition(e.Position);
-
-                // Toggle fold
-                if (scintilla.Lines[line].FoldLevelFlags.HasFlag(FoldLevelFlags.Header))
-                {
-                    scintilla.Lines[line].ToggleFold();
-                }
-            }
-            MessageBox.Show("");
-        }
-
-        private void scintilla_CharAdded(object sender, CharAddedEventArgs e)
-        {
-            int currentPos = scintilla.CurrentPosition;
-
-            // Mostrar miembros después de un punto
-            if (e.Char == '.')
-            {
-                MostrarMiembrosDeObjeto(currentPos);
+            if (string.IsNullOrWhiteSpace(texto))
                 return;
-            }
 
-            // Obtener palabra actual
-            int wordStartPos = scintilla.WordStartPosition(currentPos, true);
-            string currentWord = scintilla.GetTextRange(wordStartPos, currentPos - wordStartPos);
-
-            // Mostrar autocompletado después de 2 caracteres
-            if (currentWord.Length >= 2)
+            var partes = texto.Split(',');
+            foreach (var parte in partes)
             {
-                // Usar versión simple o con Roslyn
-                //MostrarAutocompletado(currentWord, currentPos); // Simple
-                MostrarAutocompletadoConRoslyn(currentWord, currentPos); // Avanzado
+                var limpio = parte.Trim();
+                var tokens = limpio.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (tokens.Length >= 2)
+                {
+                    nodo.Parametros.Add(new ParametroMetodo
+                    {
+                        Tipo = tokens[0],
+                        Nombre = tokens[1]
+                    });
+                }
             }
         }
+
+        
+
+        
     }
 
 

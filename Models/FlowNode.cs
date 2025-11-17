@@ -8,7 +8,7 @@ namespace NodeCode.Models
     {
         public string Id { get; set; }
         public string Name { get; set; }
-        public string Description { get; set; }
+        public string Summary { get; set; }
         public Point Position { get; set; }
         public Size Size { get; set; }
         public List<FlowNode> Connections { get; set; }
@@ -19,7 +19,7 @@ namespace NodeCode.Models
         {
             Id = Guid.NewGuid().ToString();
             Name = name;
-            Description = description;
+            Summary = description;
             Position = position;
             Size = new Size(192, 64);
             Connections = new List<FlowNode>();
